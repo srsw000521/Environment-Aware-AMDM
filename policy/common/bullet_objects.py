@@ -25,6 +25,7 @@ class VSphere:
         old_num_bodies = self._p.getNumBodies()
 
         radius = 0.2 if radius is None else radius
+
         pos = (0, 0, 1) if pos is None else pos
         rgba = (219 / 255, 72 / 255, 72 / 255, 1.0) if rgba is None else tuple(rgba)
 

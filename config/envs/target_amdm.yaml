@@ -1,4 +1,4 @@
-env_module: "policy.envs.target_env:TargetEnv"
+env_module: "policy.envs.target_env_pool:TargetEnv"
 env_name: "TargetEnv"
 num_parallel: 512
 num_parallel_test: 1
@@ -22,6 +22,10 @@ model_type: 'amdm'
 action_rgr_step: [4,3,2]
 action_mode: 'full' #epsilon, locomotion
 action_step: [14,13,12,11,10,9,8,7,6,5,4,3,2]
+
+sg_pool_npz_path: "start_goal_pairs_map2_60.npz"
+sg_pool_max_fail_streak: 5   # optional
+w_foot: 2.0
 
 #HUMOR
 #action_scale: 3

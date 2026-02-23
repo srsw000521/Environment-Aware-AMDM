@@ -3,6 +3,22 @@ import gymnasium as gym
 from gymnasium.envs.registration import register, registry
 
 
+def build_bvh_envs(config_file, model, dataset, device):
+    config = load_yaml_file(config_file)
+    env_module = config["env_module"]
+    env_name = config["env_name"]
+
+    seed = config.get("seed", 0)
+    print("Building {}-{}".format(env_module, env_name))
+
+    gym.envs.registration.register(id=env_name, entry_point=env_module)
+
+    env = gym.make(env_module, config=config, model = None, dataset=dataset, device=device)
+    env.seed(seed)
+    print("Built {}-{}".format(env_module, env_name))
+
+    return env
+
 def build_envs(config_file, int_output_dir, model, dataset, mode, device):
     config = load_yaml_file(config_file)
     env_module = config["env_module"]

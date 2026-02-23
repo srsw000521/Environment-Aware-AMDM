@@ -1,4 +1,3 @@
-
 import policy.envs.base_env as base_env
 from render.realtime.mocap_renderer import PBLMocapViewer
 import torch
@@ -8,6 +7,7 @@ import gymnasium as gym
 class RandomPlayEnv(base_env.EnvBase):
     NAME = "RandomPlay"
     def __init__(self, config, model, dataset, device):
+
         self.device = device
         self.config = config
         self.model = model
@@ -69,20 +69,18 @@ class RandomPlayEnv(base_env.EnvBase):
         if self.is_rendered:
             self.record_num_frames = np.zeros((self.num_parallel,))
             self.record_motion_seq = np.zeros((self.num_parallel, self.max_timestep, self.dataset.frame_dim))
-    
 
     def get_cond_frame(self):
         condition = self.history[:, : self.num_condition_frames]
         return condition.view(condition.shape[0],-1)
-    
 
     def get_next_frame(self, action=None):
         condition = self.get_cond_frame()
-       
+
         with torch.no_grad():
             output = self.model.eval_step(condition, self.cur_extra_info)
             #output = self.dataset.unify_rpr_within_frame(condition, output)
-        
+
         return output
     
     def reset(self):
@@ -93,7 +91,6 @@ class RandomPlayEnv(base_env.EnvBase):
         self.substep.fill_(0)
         self.done.fill_(False)
         self.reset_initial_frames()
-
 
     def reset_index(self, indices):
         if indices is None:
@@ -116,18 +113,14 @@ class RandomPlayEnv(base_env.EnvBase):
 
         return 
 
-
     def calc_env_state(self, next_frame):
         
-        self.reward.fill_(1) 
-        
+        self.reward.fill_(1)
         self.timestep[self.substep == self.frame_skip - 1] += 1
         self.substep = (self.substep + 1) % self.frame_skip
 
         self.integrate_root_translation(next_frame)
- 
         #foot_slide = self.calc_foot_slide()
-
         self.done[self.timestep >= self.max_timestep] = True
 
         self.render()
@@ -137,13 +130,46 @@ class RandomPlayEnv(base_env.EnvBase):
             self.done,
             {"reset": self.timestep >= self.max_timestep},
         )
-    
+
+    def integrate_root_translation(self, pose):
+
+        pose_denorm = self.dataset.denorm_data(pose, device=pose.device)
+        dr = self.dataset.get_heading_dr(pose_denorm)[..., None]
+        root_xz_vel = self.dataset.get_root_linear_planar_vel(pose_denorm)
+        root_rotmat_up = self.get_rotation_matrix(self.root_facing)
+        #displacement = (root_rotmat_up * root_xz_vel.unsqueeze(1)).sum(dim=2)
+        displacement = torch.matmul(root_rotmat_up, root_xz_vel.unsqueeze(-1)).squeeze(-1)
+
+        lfoot_xz, rfoot_xz = self.dataset.get_foot_xz(pose_denorm)
+        lfoot_contact,rfoot_contact = self.dataset.get_foot_contact(pose_denorm)
+        print(lfoot_contact, rfoot_contact)
+
+        lf_world = torch.matmul(root_rotmat_up, lfoot_xz.unsqueeze(-1)).squeeze(-1)  # (..., 2)
+        rf_world = torch.matmul(root_rotmat_up, rfoot_xz.unsqueeze(-1)).squeeze(-1)
+
+        lf_world = lf_world + self.root_xz
+        rf_world = rf_world + self.root_xz
+
+        self.lf = lf_world
+        self.rf = rf_world
+
+        self.root_facing.add_(dr).remainder_(2 * np.pi)
+        self.root_facing = (self.root_facing + np.pi) % (2 * np.pi) - np.pi
+        self.root_xz.add_(displacement)
+
+        self.history = self.history.roll(1, dims=1)
+        self.history[:, :self.num_condition_frames].copy_(pose.view(pose.shape[0], -1, pose.shape[-1]))
+
     def render(self, mode="human"):
         frame = self.dataset.denorm_data(self.history[:, 0], device=self.device).cpu().numpy()
         self.viewer.render(
             torch.tensor(self.dataset.x_to_jnts(frame, mode='angle'),device=self.device, dtype=self.history.dtype),  # 0 is the newest
             self.root_facing,
             self.root_xz,
+            #self.lf,
+            #self.rf,
+            #self.lf_polar,
+            #self.rf_polar,
             0.0,  # No time in this env
             0.0   #self.action,
         )

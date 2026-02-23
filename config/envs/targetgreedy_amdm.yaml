@@ -11,7 +11,7 @@ frame_skip: 1
 
 #AMDM
 action_scale: 1.0 #0.95 during training
-random_scale: 0.0
+random_scale: 1.0
 
 test_action_scale: 1.0
 test_random_scale: 0.0
@@ -20,7 +20,7 @@ model_type: 'amdm'
 
 action_rgr_step: [4,3]
 action_mode: 'full' #epsilon, locomotion
-action_step: [39,38,36,34,32,28,25,20,18,15,12,10,8,6,5,4,3]
+action_step: [14,13,12,11,10,9,8,7,6,5,4,3]
 
 
 #HUMOR

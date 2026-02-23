@@ -14,9 +14,9 @@ class LAFAN1(base_dataset.BaseMotionData):
         self.use_cond = False
         
     def process_data(self, fname):
-        # read a single file, convert them into single format
-        final_x, motion_struct = bvh_util.read_bvh_loco(fname, self.unit, self.fps, self.root_rot_offset)
-
+        basename = osp.splitext(osp.basename(fname))[0]
+        foot_fname = osp.join("./data/LAFAN1/foot", basename + ".txt")
+        final_x, motion_struct= bvh_util.read_bvh_loco(fname, foot_fname, self.unit, self.fps, self.root_rot_offset)
         # use file num as label
         if self.data_trim_begin:
             final_x = final_x[self.data_trim_begin:]
@@ -25,6 +25,9 @@ class LAFAN1(base_dataset.BaseMotionData):
         self.num_file += 1
         return final_x, motion_struct
 
+    def process_foot_data(self, fname):
+        foot_contact = bvh_util.extract_foot_positions(fname, self.unit, self.fps, self.root_rot_offset)
+        return foot_contact
 
     def load_new_data(self, path):
         x = self.process_data(path)[0]

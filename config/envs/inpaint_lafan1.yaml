@@ -2,17 +2,17 @@ env_module: "policy.envs.inpaint_env:InpaintEnv"
 env_name: "InpaintEnv"
 num_parallel: 1
 num_parallel_test: 1
-max_timestep: 600
+max_timestep: 900
 frame_skip: 1
 
 model_type: 'inpaint'
 
 edit:
   repaint_step: 1
-  interact_stop_step: -1 
+  interact_stop_step: -1
 
   #full:
-   
+
   #  0:
   #    interact_stop_step: 4 #-1
   #    start_frame: 200 #120 #210 #300
@@ -21,7 +21,7 @@ edit:
   #    data_start_frame: 1 #301
   #    data_end_frame: 32 #541 #601
 
-    
+
   #  1:
   #    interact_stop_step: 4
   #    start_frame: 381 #120 #210 #300
@@ -29,7 +29,7 @@ edit:
   #    val: data/LAFAN1_tpose/dance2_subject2.bvh
   #    data_start_frame: 1 #301
   #    data_end_frame: 32 #541 #601
-  
+
   #full_trajectory:
   #   start_frame: 0 #210 #300
   #   end_frame: 5000 #510 #600
@@ -43,7 +43,7 @@ edit:
   #  val: data/LAFAN1_tpose/dance2_subject3.bvh # miscs/interact_temp/positions.npy
   #  data_start_frame: 1701 #301
   #  data_end_frame: 1702 #601
-  
+
   #full_joint: #deep ik
   #  start_frame: 1 #210 #300
   ##  end_frame: 601 #510 #600
@@ -54,34 +54,34 @@ edit:
   #heading:
   #  val: 0.01
   #  start_frame: 0
-  #  end_frame: -1 
-  
+  #  end_frame: -1
+
   trajectory:
     start_frame: 0
-    end_frame: -1 
-    shape: circle #line
+    end_frame: -1
+    shape: line #line
     radius: 7
-    direction: side2 #side1 side2 forward backward
+    direction: forward #side1 side2 forward backward
 
   #root_dxdy:
   #  0:
   #    val: 0
   #    start_frame: 0
-  #    end_frame: -1 
+  #    end_frame: -1
   #  1:
   #    val: 0
   #    start_frame: 0
-  #    end_frame: -1 
-  
+  #    end_frame: -1
+
   #position:
   #  Head:
   #    1:
-  #      val: 0.4 #y axis is the up axis   
+  #      val: 0.4 #y axis is the up axis
   #      start_frame: 5
   #      end_frame: 1000
 
     #Hips:
-    #  1: 
+    #  1:
     #    val: 0.4
     #    start_frame: 30
     #    end_frame: 1000

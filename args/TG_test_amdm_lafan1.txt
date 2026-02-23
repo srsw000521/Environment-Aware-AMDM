@@ -1,10 +1,12 @@
---model_config output/base/amdm_lafan1/config.yaml
---model_path output/base/amdm_lafan1/model_param.pth
+--model_config output/target/0115_amdm/config.yaml
+--model_path output/my/0115_amdm/model_param.pth
 
---agent_config output/target/amdm_lafan1/ppo.yaml
---env_config output/target/amdm_lafan1/target_amdm.yaml
---int_output_dir output/target/amdm_lafan1/
---controller_path output/target/amdm_lafan1/_ep4200.pth
+
+--agent_config output/target/0213_amdm_finetune/ppo.yaml
+--env_config output/target/0213_amdm_finetune/target_amdm.yaml
+--int_output_dir output/target/0213_amdm_finetune/
+--controller_path output/target/0213_amdm_finetune/_ep4000.pth
+
 
 --device cuda:0
 --mode test

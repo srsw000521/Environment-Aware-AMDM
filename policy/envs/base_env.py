@@ -5,31 +5,34 @@ import gymnasium as gym
 import torch
 from render.realtime.mocap_renderer import PBLMocapViewer
 
-coord_table = {'x':0, 'y':2, 'z':1}
+coord_table = {'x': 0, 'y': 2, 'z': 1}
+
+
 def get_xyz_index(coord_order):
-    return [coord_table[i] for i in coord_order]    
+    return [coord_table[i] for i in coord_order]
+
 
 class EnvBase(gym.Env):
     def __init__(self, config, model, dataset, device):
         self.device = device
-        self.is_rendered = config.get('is_rendered',True)
-        self.num_parallel = config.get('num_parallel',1)
-        self.num_parallel_test = config.get('num_parallel_test',1)
+        self.is_rendered = config.get('is_rendered', True)
+        self.num_parallel = config.get('num_parallel', 1)
+        self.num_parallel_test = config.get('num_parallel_test', 1)
 
-        self.frame_skip = config.get('frame_skip',1)
-        self.max_timestep = config.get('max_timestep_test',2000) if self.is_rendered else config.get('max_timestep',1000//self.frame_skip)
-        self.camera_tracking = config.get('camera_tracking',True)
-        
+        self.frame_skip = config.get('frame_skip', 1)
+        self.max_timestep = config.get('max_timestep_test', 2000) if self.is_rendered else config.get('max_timestep', 1000 // self.frame_skip)
+        self.camera_tracking = config.get('camera_tracking', True)
+
         self.int_output_dir = config['int_output_dir']
 
         self.model = model
-        self.dataset = dataset       
+        self.dataset = dataset
 
         self.frame_dim = dataset.frame_dim
         self.data_fps = dataset.fps
-        
+
         self.sk_dict = dataset.skel_info
-        
+
         self.links = dataset.links
         self.name_joint = dataset.joint_names
         self.offset_joint = dataset.joint_offset
@@ -37,50 +40,47 @@ class EnvBase(gym.Env):
 
         self.root_idx = dataset.root_idx
         self.foot_idx = dataset.foot_idx
-                
-        self.action_scale = config.get('action_scale',1.0)
-        self.test_action_scale = config.get('test_action_scale',self.action_scale)
+
+        self.action_scale = config.get('action_scale', 1.0)
+        self.test_action_scale = config.get('test_action_scale', self.action_scale)
 
         self.model_type = config['model_type']
         if config['model_type'] == 'amdm':
-            
+
             self.action_step = config['action_step']
-            self.use_action_mask = config.get('use_action_mask',False)
-            
+            self.use_action_mask = config.get('use_action_mask', False)
+
             if len(config['action_step']) == 0:
                 self.action_step = list(range(model.T))
-            
+
             self.action_mode = config['action_mode']
             self.random_scale = config['random_scale']
             self.test_random_scale = config['test_random_scale']
 
-            self.clip_scale = config.get('clip_scale',2.5)
+            self.clip_scale = config.get('clip_scale', 2.5)
             if self.action_mode == 'loco':
                 self.action_dim_per_step = 8
-                
+
             elif self.action_mode == 'full':
-                self.action_dim_per_step = self.frame_dim 
-            
+                self.action_dim_per_step = self.frame_dim
+
             self.action_dim = self.frame_dim + self.action_dim_per_step * len(self.action_step)
-           
-           
-            self.extra_info = {'action_step':self.action_step,
-                               'action_mode':self.action_mode, 
-                               'is_train': not self.is_rendered, 
+
+            self.extra_info = {'action_step': self.action_step,
+                               'action_mode': self.action_mode,
+                               'is_train': not self.is_rendered,
                                'action_scale': self.action_scale,
                                'test_action_scale': self.test_action_scale,
-                               'rand_scale':self.random_scale, 
-                               'test_rand_scale':self.test_random_scale,
-                               'clip_scale':self.clip_scale}
-            
+                               'rand_scale': self.random_scale,
+                               'test_rand_scale': self.test_random_scale,
+                               'clip_scale': self.clip_scale}
 
-
-        elif config['model_type'] == 'humor':   
-            self.action_dim = model.action_dim #if hasattr(self.model,'action_dim') else 64
+        elif config['model_type'] == 'humor':
+            self.action_dim = model.action_dim  # if hasattr(self.model,'action_dim') else 64
             self.extra_info = None
-        
-        elif config['model_type'] == 'mvae':   
-            self.action_dim = model.action_dim #if hasattr(self.model,'action_dim') else 64
+
+        elif config['model_type'] == 'mvae':
+            self.action_dim = model.action_dim  # if hasattr(self.model,'action_dim') else 64
             self.extra_info = None
 
         else:
@@ -104,7 +104,9 @@ class EnvBase(gym.Env):
         self.substep = torch.zeros((self.num_parallel, 1)).to(self.device)
         self.root_facing = torch.zeros((self.num_parallel, 1)).to(self.device)
         self.root_xz = torch.zeros((self.num_parallel, 2)).to(self.device)
-        self.root_y = torch.zeros((self.num_parallel, )).to(self.device)
+        self.root_y = torch.zeros((self.num_parallel,)).to(self.device)
+        self.lf = torch.zeros((self.num_parallel, 2)).to(self.device)
+        self.rf = torch.zeros((self.num_parallel, 2)).to(self.device)
 
         self.reward = torch.zeros((self.num_parallel, 1)).to(self.device)
         self.potential = torch.zeros((self.num_parallel, 2)).to(self.device)
@@ -115,46 +117,54 @@ class EnvBase(gym.Env):
         self.parallel_ind_buf = (
             torch.arange(0, self.num_parallel).long().to(self.device)
         )
-        
+
         if self.is_rendered:
             self.viewer = PBLMocapViewer(
-                    self,
-                    num_characters=self.num_parallel,
-                    target_fps=self.data_fps,
-                    camera_tracking=self.camera_tracking,
-                )
-            
+                self,
+                num_characters=self.num_parallel,
+                target_fps=self.data_fps,
+                camera_tracking=self.camera_tracking,
+            )
+
         high = np.inf * np.ones([self.action_dim])
         self.action_space = gym.spaces.Box(-high, high, dtype=np.float32)
 
-
     def save_motion(self):
-        seqs = self.dataset.denorm_data(self.record_motion_seq)#.detach().cpu().numpy()
+        seqs = self.dataset.denorm_data(self.record_motion_seq)  # .detach().cpu().numpy()
         for i in range(seqs.shape[0]):
             seq = seqs[i]
             xzs = self.dataset.x_to_trajs(seq)
-            self.dataset.save_bvh(osp.join(self.int_output_dir,'out{}'.format(i)),seq)
-            np.save(osp.join(self.int_output_dir,'traj{}'.format(i)),xzs)
+            self.dataset.save_bvh(osp.join(self.int_output_dir, 'out{}'.format(i)), seq)
+            np.save(osp.join(self.int_output_dir, 'traj{}'.format(i)), xzs)
 
-        np.savez(osp.join(self.int_output_dir,'out.npz'), action=None, init_frame = self.init_frame.cpu().numpy(), nframe=self.record_timestep)
-
-
+        np.savez(osp.join(self.int_output_dir, 'out.npz'), action=None, init_frame=self.init_frame.cpu().numpy(),
+                 nframe=self.record_timestep)
 
     def integrate_root_translation(self, pose):
-        pose_denorm = self.dataset.denorm_data(pose, device=pose.device)
-        dr = self.dataset.get_heading_dr(pose_denorm)[...,None]
-        root_xz_vel = self.dataset.get_root_linear_planar_vel(pose_denorm)
 
+        pose_denorm = self.dataset.denorm_data(pose, device=pose.device)
+        dr = self.dataset.get_heading_dr(pose_denorm)[..., None]
+        root_xz_vel = self.dataset.get_root_linear_planar_vel(pose_denorm)
         root_rotmat_up = self.get_rotation_matrix(self.root_facing)
-        displacement = (root_rotmat_up * root_xz_vel.unsqueeze(1)).sum(dim=2)
-        
+        #displacement = (root_rotmat_up * root_xz_vel.unsqueeze(1)).sum(dim=2)
+        displacement = torch.matmul(root_rotmat_up, root_xz_vel.unsqueeze(-1)).squeeze(-1)
+
+        lfoot_xz, rfoot_xz = self.dataset.get_foot_xz(pose_denorm)
+
+        lf_world = torch.matmul(root_rotmat_up, lfoot_xz.unsqueeze(-1)).squeeze(-1)  # (..., 2)
+        rf_world = torch.matmul(root_rotmat_up, rfoot_xz.unsqueeze(-1)).squeeze(-1)
+
+        lf_world = lf_world + self.root_xz
+        rf_world = rf_world + self.root_xz
+
+        self.lf = lf_world
+        self.rf = rf_world
+
         self.root_facing.add_(dr).remainder_(2 * np.pi)
         self.root_xz.add_(displacement)
-        
+
         self.history = self.history.roll(1, dims=1)
         self.history[:, :self.num_condition_frames].copy_(pose.view(pose.shape[0], -1, pose.shape[-1]))
-    
-
 
     def get_rotation_matrix(self, yaw, dim=2):
         zeros = torch.zeros_like(yaw)
@@ -170,29 +180,28 @@ class EnvBase(gym.Env):
             matrix = torch.stack((col1, col2), dim=-1)
         return matrix
 
-
     def get_cond_frame(self):
         condition = self.history[:, :self.num_condition_frames].view(-1, self.frame_dim)
         return condition
 
     def get_next_frame(self, action):
         self.action = action
-        condition = self.get_cond_frame() 
+        condition = self.get_cond_frame()
         extra_info = self.extra_info
-        
+
         with torch.no_grad():
             output = self.model.rl_step(condition, action, extra_info)
-            
-        #if self.is_rendered:   
+
+        # if self.is_rendered:
         #    self.record_motion_seq[:,self.record_timestep,:]= output.cpu().detach().numpy()
         #    self.record_timestep += 1
         #    if self.record_timestep % 90 == 0 and self.record_timestep != 0:
         #        self.save_motion()
-            
+
         return output
 
     def reset(self):
-    
+
         self.root_facing.fill_(0)
         self.root_xz.fill_(0)
         self.reward.fill_(0)
@@ -200,13 +209,12 @@ class EnvBase(gym.Env):
         self.substep.fill_(0)
         self.done.fill_(False)
         # value bigger than contact_threshold
-        #self.foot_pos_history.fill_(1)
+        # self.foot_pos_history.fill_(1)
 
         self.reset_target()
         self.reset_initial_frames()
         obs_components = self.get_observation_components()
         return torch.cat(obs_components, dim=1)
-
 
     def reset_index(self, indices=None):
         if indices is None:
@@ -217,7 +225,7 @@ class EnvBase(gym.Env):
             self.substep.fill_(0)
             self.done.fill_(False)
             # value bigger than contact_threshold
-            #self.foot_pos_history.fill_(1)
+            # self.foot_pos_history.fill_(1)
 
             self.reset_target()
             self.reset_initial_frames()
@@ -229,29 +237,27 @@ class EnvBase(gym.Env):
             self.reset_target(indices)
             self.reset_initial_frames(indices)
             # value bigger than contact_threshold
-            #self.foot_pos_history.index_fill_(dim=0, index=indices, value=1)
+            # self.foot_pos_history.index_fill_(dim=0, index=indices, value=1)
 
         obs_components = self.get_observation_components()
         return torch.cat(obs_components, dim=1)
 
-
     def reset_initial_frames(self, index=None):
         # Make sure condition_range doesn't blow up
         num_init = self.num_parallel if index is None else len(index)
-        start_index = torch.randint(0, len(self.dataset.valid_idx), (num_init,1)) 
+        start_index = torch.randint(0, len(self.dataset.valid_idx), (num_init, 1))
         start_index = self.dataset.valid_idx[start_index]
-        data = torch.tensor(self.dataset.motion_flattened[start_index], device = self.device, dtype=torch.float32).clone()
-    
+        data = torch.tensor(self.dataset.motion_flattened[start_index], device=self.device, dtype=torch.float32).clone()
+
         if self.is_rendered:
-            print('resetting, starting frame index:',start_index)
+            print('resetting, starting frame index:', start_index)
 
         if not index:
-            #self.init_frame[:] = data.squeeze()
+            # self.init_frame[:] = data.squeeze()
             self.history[:, :self.num_condition_frames].copy_(data)
         else:
-            #self.init_frame[index] = data.squeeze()
+            # self.init_frame[index] = data.squeeze()
             self.history[index, :self.num_condition_frames].copy_(data)
-
 
     def calc_foot_slide(self):
         return 0
@@ -286,9 +292,9 @@ class EnvBase(gym.Env):
     def calc_energy_penalty(self, next_frame):
         vel_dim_lst = self.dataset.vel_dim_lst
         action_energy = (
-            next_frame[:, [0, 1]].pow(2).sum(1)
-            + next_frame[:, 2].pow(2)
-            + next_frame[:,  vel_dim_lst[0]:  vel_dim_lst[1]].pow(2).mean(1)
+                next_frame[:, [0, 1]].pow(2).sum(1)
+                + next_frame[:, 2].pow(2)
+                + next_frame[:, vel_dim_lst[0]:  vel_dim_lst[1]].pow(2).mean(1)
         )
         return -0.8 * action_energy.unsqueeze(dim=1)
 
@@ -296,13 +302,11 @@ class EnvBase(gym.Env):
         prob_energy = self.action.abs().mean(-1, keepdim=True)
         return -0.01 * prob_energy
 
-
     def step(self, action):
         next_frame = self.get_next_frame(action)
         obs, reward, done, info = self.calc_env_state(next_frame)
         return (obs, reward, done, info)
-        
-        
+
     def calc_env_state(self, next_frame):
         raise NotImplementedError
 
@@ -318,9 +322,12 @@ class EnvBase(gym.Env):
         frame = self.dataset.denorm_data(self.history[:, 0], device=self.device).detach().cpu().numpy()
         if self.is_rendered:
             self.viewer.render(
-                torch.tensor(self.dataset.x_to_jnts(frame, mode='angle'),device=self.device,dtype=self.root_facing.dtype),  # 0 is the newest
+                torch.tensor(self.dataset.x_to_jnts(frame, mode='angle'), device=self.device,
+                             dtype=self.root_facing.dtype),  # 0 is the newest
                 self.root_facing,
                 self.root_xz,
+                self.lf,
+                self.rf,
                 0.0,  # No time in this env
                 self.action,
             )

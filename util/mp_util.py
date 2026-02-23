@@ -6,6 +6,7 @@ import torch
 ROOT_PROC_RANK = 0
 
 global_mp_device = None
+global_num_procs = None
 
 def init(rank, num_procs, device, master_port):
     global global_mp_device
@@ -13,22 +14,26 @@ def init(rank, num_procs, device, master_port):
     assert(global_mp_device is None)
     global_mp_device = device
 
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = str(master_port)
 
-    if (device == "cpu"):
-        backend = "gloo"
-    elif ("cuda" in device):
-        backend = "nccl"
-    else:
-        assert False, "Unsupported multiprocessing device {:s}".format(device)
+    if num_procs > 1:
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = str(master_port)
+
+        if (device == "cpu"):
+            backend = "gloo"
+        elif ("cuda" in device):
+            backend = "nccl"
+        else:
+            assert False, "Unsupported multiprocessing device {:s}".format(device)
     
-    os_platform = platform.system()
-    if (backend == "nccl" and os_platform == "Windows"):
-        print("Pytorch doesn't support NCCL on Windows, defaulting to gloo backend")
-        backend = "gloo"
+        os_platform = platform.system()
+        if (backend == "nccl" and os_platform == "Windows"):
+            print("Pytorch doesn't support NCCL on Windows, defaulting to gloo backend")
+            backend = "gloo"
 
-    torch.distributed.init_process_group(backend, rank=rank, world_size=num_procs)
+        torch.distributed.init_process_group(backend, rank=rank, world_size=num_procs)
+    else:
+        print("[mp_util] Single process mode: skipping torch.distributed.init_process_group()")
 
     return
 
@@ -36,15 +41,19 @@ def get_num_procs():
     return torch.distributed.get_world_size()
 
 def get_proc_rank():
+    if global_num_procs == 1:
+        return 0
     return torch.distributed.get_rank()
 
 def is_root_proc():
-    rank = get_proc_rank()
+    #rank = get_proc_rank() 분산 학습 방지를 위해 수정
+    rank = 0
     return rank == ROOT_PROC_RANK
 
 def enable_mp():
-    num_procs = get_num_procs()
-    return num_procs > 1
+    #num_procs = get_num_procs()
+    #return num_procs > 1
+    return False
 
 def get_device():
     return global_mp_device

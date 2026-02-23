@@ -3,8 +3,9 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import os
-os.environ['WANDB_API_KEY']='d2693de8bbe1184bdfd9703d7433fe3078232f18'
-os.environ['WANDB_ENTITY']='sy3'
+os.environ['WANDB_API_KEY']='35b8bcf94663fa99766c428ece18097d3f0c65e8'
+os.environ['WANDB_ENTITY']='srsw000521-sejong-university'
+
 import sys
 import shutil
 import torch
@@ -77,13 +78,14 @@ def copy_config_file(config_file, output_dir):
     shutil.copy(config_file, out_file)
     return
 
+
 def run(rank, num_procs, args):
     mode = args.parse_string("mode", "train")
     device = args.parse_string("device", "cuda:0")
     log_file = args.parse_string("log_file", "")
     out_model_file = args.parse_string("out_model_file", "")
     trained_model_path = args.parse_string("model_path", "")
-    
+
     int_output_dir = args.parse_string("int_output_dir", "")
     master_port = args.parse_string("master_port", "")
     model_config_file = args.parse_string("model_config", "")
@@ -93,10 +95,10 @@ def run(rank, num_procs, args):
     set_np_formatting()
     create_output_dirs(out_model_file, int_output_dir)
     out_model_dir = os.path.dirname(out_model_file)
-    
+
     trainer = build_trainer(model_config_file, device)
     model = build_model(model_config_file, trainer.dataset, device)
-    dataset = build_dataset(model_config_file, load_full_dataset = True)
+    dataset = build_dataset(model_config_file, load_full_dataset=True)
     if (trained_model_path != ""):
         try:
             model = model_builder.build_model(model_config_file, dataset, device)
@@ -104,28 +106,28 @@ def run(rank, num_procs, args):
             model.load_state_dict(state_dict)
         except:
             model = torch.load(trained_model_path)
-        
+
         model.to(device)
         model.eval()
-        
+
     if (mode == "train"):
         copy_config_file(model_config_file, out_model_dir)
-        train(trainer, model, out_model_file=out_model_file, 
+        train(trainer, model, out_model_file=out_model_file,
               int_output_dir=int_output_dir, log_file=log_file)
-            
+
     elif (mode == "eval"):
         stats = evaluate(trainer, model, device=device)
         return stats
-    
+
     else:
-        assert(False), "Unsupported mode: {}".format(mode)
+        assert (False), "Unsupported mode: {}".format(mode)
 
     return
 
 def main(argv):
     args = load_args(argv)
     num_workers = args.parse_int("num_workers", 1)
-    assert(num_workers > 0)
+    assert (num_workers > 0)
 
     torch.multiprocessing.set_start_method("spawn")
 
@@ -140,8 +142,10 @@ def main(argv):
 
     for proc in processes:
         proc.join()
-       
+
     return
 
 if __name__ == "__main__":
     main(sys.argv)
+
+

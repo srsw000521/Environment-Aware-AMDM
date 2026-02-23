@@ -1,0 +1,14 @@
+env_module: "policy.envs.BVHDataVisEnv:BVHDataVisEnv"
+env_name: "BVHDataVisEnv"
+
+frame_skip: 1
+start_timestep: 0
+max_timestep: 100000
+num_parallel: 1
+camera_tracking : False
+
+data:
+    dataset_name: "LAFAN1_BVH"
+    path: "./data/test"
+    data_fps: 30
+

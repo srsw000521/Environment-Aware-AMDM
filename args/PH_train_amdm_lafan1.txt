@@ -1,12 +1,11 @@
 
 --env_config config/envs/path_amdm.yaml
---model_config output/base/amdm_lafan1/config.yaml
---model_path output/base/amdm_lafan1/_ep2000.pth
+--model_config output/my/0115_amdm/config.yaml
+--model_path output/my/0115_amdm/model_param.pth
 --agent_config config/agents/ppo.yaml
 
 --int_output_dir output/path/amdm_lafan1/
 --out_model_file output/path/amdm_lafan1/policy_model.pth
-
 
 --device cuda:0
 --mode train

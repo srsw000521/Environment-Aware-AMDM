@@ -26,10 +26,10 @@ class RolloutStorage(object):
         self.bad_masks = self.bad_masks.to(device)
 
     def insert(
-        self, current_obs, action, action_log_prob, value_pred, reward, mask, bad_mask
+            self, current_obs, action, action_log_prob, value_pred, reward, mask, bad_mask
     ):
         self.observations[self.step + 1].copy_(current_obs)
-        
+
         self.actions[self.step].copy_(action)
         self.action_log_probs[self.step].copy_(action_log_prob)
         self.value_preds[self.step].copy_(value_pred)
@@ -50,9 +50,9 @@ class RolloutStorage(object):
             gae = 0
             for step in reversed(range(self.rewards.size(0))):
                 delta = (
-                    self.rewards[step]
-                    + gamma * self.value_preds[step + 1] * self.masks[step + 1]
-                    - self.value_preds[step]
+                        self.rewards[step]
+                        + gamma * self.value_preds[step + 1] * self.masks[step + 1]
+                        - self.value_preds[step]
                 )
                 gae = delta + gamma * gae_lambda * self.masks[step + 1] * gae
                 gae = gae * self.bad_masks[step + 1]
@@ -61,12 +61,12 @@ class RolloutStorage(object):
             self.returns[-1] = next_value
             for step in reversed(range(self.rewards.size(0))):
                 self.returns[step] = (
-                    (
-                        self.returns[step + 1] * gamma * self.masks[step + 1]
-                        + self.rewards[step]
-                    )
-                    * self.bad_masks[step + 1]
-                    + (1 - self.bad_masks[step + 1]) * self.value_preds[step]
+                        (
+                                self.returns[step + 1] * gamma * self.masks[step + 1]
+                                + self.rewards[step]
+                        )
+                        * self.bad_masks[step + 1]
+                        + (1 - self.bad_masks[step + 1]) * self.value_preds[step]
                 )
 
     def feed_forward_generator(self, advantages, num_mini_batch):

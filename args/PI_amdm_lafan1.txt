@@ -1,9 +1,10 @@
 --env_config config/envs/inpaint_lafan1.yaml
---model_config output/base/amdm_lafan1/config.yaml
---model_path output/base/amdm_lafan1/model_param.pth
---int_output_dir output/base/amdm_lafan1/
+--model_config output/my/0115_amdm/config.yaml
+--model_path output/my/0115_amdm/model_param.pth
+--int_output_dir output/my/0115_amdm/
 
---test_motion_file data/LAFAN1/dance1_subject2.bvh
+--test_motion_file data/LAFAN1/jumps1_subject2.bvh
+
 --device cuda:0
 --master_port 0
 --mode test

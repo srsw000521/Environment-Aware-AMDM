@@ -29,6 +29,9 @@ class BulletClient(object):
     """
         if connection_mode is None:
             self._client = pybullet.connect(pybullet.SHARED_MEMORY)
+
+            #mode = pybullet.GUI
+            #self._client = pybullet.connect(mode)
             if self._client >= 0:
                 return
             else:
@@ -377,8 +380,39 @@ class Camera:
 
         self.lookat((0, 0, 1))
 
-    def track(self, pos, smooth_coef=None):
+    def rotate(self, dx, dy):
+        yaw_speed = 0.4
+        pitch_speed = 0.4
 
+        _, _, _, _, _, _, _, _, yaw, pitch, dist, target = self._p.getDebugVisualizerCamera()
+        yaw -= dx * yaw_speed
+        pitch -= dy * pitch_speed
+        pitch = np.clip(pitch, -89.9, 89.9)
+
+        self._p.resetDebugVisualizerCamera(dist, yaw, pitch, target)
+
+    def pan(self, dx, dy):
+        _, _, _, _, _, _, _, _, yaw, pitch, dist, target = self._p.getDebugVisualizerCamera()
+        pan_speed = 0.005 * dist
+        pitch_rad = np.radians(pitch)
+        yaw_rad = np.radians(yaw)
+
+        right = np.array([
+            np.cos(yaw_rad),
+            np.sin(yaw_rad),
+            0])
+        up = np.array([
+            -np.sin(pitch_rad) * np.sin(yaw_rad),
+            np.sin(pitch_rad) * np.cos(yaw_rad),
+            np.cos(pitch_rad)])
+
+        offset = (-dx * right + dy * up) * pan_speed
+        new_target = np.array(target) + offset
+
+        self._p.resetDebugVisualizerCamera(dist, yaw, pitch, new_target)
+
+
+    def track(self, pos, smooth_coef=None):
         try:
             smooth_coef = self._coef if smooth_coef is None else smooth_coef
             assert (smooth_coef <= 1).all(), "Invalid camera smoothing parameters"

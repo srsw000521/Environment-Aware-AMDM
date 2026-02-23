@@ -14,12 +14,10 @@ FixedNormal.entropy = lambda self: normal_entropy(self).sum(-1)
 
 FixedNormal.mode = lambda self: self.mean
 
-
 def init(module, weight_init, bias_init, gain=1):
     weight_init(module.weight.data, gain=gain)
     bias_init(module.bias.data)
     return module
-
 
 class AddBias(nn.Module):
     def __init__(self, bias):
@@ -32,7 +30,6 @@ class AddBias(nn.Module):
         else:
             bias = self._bias.t().view(1, -1, 1, 1)
         return x + bias.to(x.device)
-
 
 class DiagGaussian_adaptive(nn.Module):
     def __init__(self, num_outputs):
@@ -47,7 +44,6 @@ class DiagGaussian_adaptive(nn.Module):
 
         action_logstd = self.logstd(zeros)
         return FixedNormal(action_mean, 0.3 * torch.ones_like(action_mean))
-
 
 class DiagGaussian_fixed(nn.Module):
     def __init__(self, std):

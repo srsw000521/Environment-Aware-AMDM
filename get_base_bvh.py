@@ -80,14 +80,14 @@ if __name__ == '__main__':
     # starting index:
     start_index = 1500 #3188 #cartwheel
 
-<<<<<<< HEAD:get_base_bvh.py
+#<<<<<<< HEAD:get_base_bvh.py
     step_default = 1000
     num_trial_default = 20
     model_name = 'amdm_lafan1_5'
-=======
+#=======
     # num of frames:
     step_default = 1000
->>>>>>> 825c6b1 (dataset update):gen_base_bvh.py
+#>>>>>>> 825c6b1 (dataset update):gen_base_bvh.py
 
     # num of clips
     num_trial_default = 6

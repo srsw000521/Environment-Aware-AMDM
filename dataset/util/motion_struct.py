@@ -10,6 +10,13 @@ class Motion:
         
         self._coord_rot_offset = np.eye(3)[None,...]
         self._fps = -1
+        self._num_frames = -1
+
+    def set_num_frames(self, num_frames):
+        self._num_frames = num_frames
+
+    def get_num_frames(self):
+        return self._num_frames
 
     def trunc_motion_by_joint(self, joint_names):
         for name in joint_names:

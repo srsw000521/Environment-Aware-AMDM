@@ -1,4 +1,5 @@
 import warnings
+
 warnings.filterwarnings("ignore")
 
 import os
@@ -18,11 +19,13 @@ import util.arg_parser as arg_parser
 import util.rand_util as rand_util
 import util.mp_util as mp_util
 
+
 def set_np_formatting():
     np.set_printoptions(edgeitems=30, infstr='inf',
                         linewidth=4000, nanstr='nan', precision=2,
                         suppress=False, threshold=10000, formatter=None)
     return
+
 
 def load_args(argv):
     args = arg_parser.ArgParser()
@@ -36,7 +39,7 @@ def load_args(argv):
     rand_seed_key = "rand_seed"
     if (args.has_key(rand_seed_key)):
         rand_seed = args.parse_int(rand_seed_key)
-        #rand_seed = mp_util.get_proc_rank()
+        # rand_seed = mp_util.get_proc_rank()
         rand_util.set_rand_seed(rand_seed)
     return args
 
@@ -45,39 +48,44 @@ def build_trainer(config, device):
     trainer = trainer_builder.build_trainer(config, device)
     return trainer
 
+
 def build_model(config, dataset, device):
     model = model_builder.build_model(config, dataset, device)
     return model
+
 
 def build_dataset(config, load_full_dataset):
     dataset = dataset_builder.build_dataset(config, load_full_dataset)
     return dataset
 
+
 def build_agent(config, model, env, device):
     agent = agent_builder.build_agent(config, model, env, device)
     return agent
+
 
 def build_env(config, int_output_dir, model, dataset, mode, device):
     env = env_builder.build_envs(config, int_output_dir, model, dataset, mode, device)
     return env
 
+
 def train(agent, out_model_file, int_output_dir):
-    agent.train_controller(out_model_file=out_model_file, 
-                      int_output_dir=int_output_dir)
+    agent.train_controller(out_model_file=out_model_file,
+                           int_output_dir=int_output_dir)
     return
 
 
 def evaluate(agent):
     agent.evaluate_controller()
-    return 
+    return
 
 
 def test(agent):
     agent.test_controller()
-    return 
+    return
+
 
 def test_no_agent(env):
-
     env.reset()
     env.reset_initial_frames()
     with EpisodeRunner(env) as runner:
@@ -89,13 +97,13 @@ def test_no_agent(env):
                 if done.any():
                     reset_indices = env.parallel_ind_buf.masked_select(done.squeeze())
                     env.reset_index(reset_indices)
-                #try:
+                # try:
                 #    if info.get("reset").all():
                 #        env.reset()
-                #except:
+                # except:
                 #    if info.get("reset"):
                 #        env.reset()
-    return      
+    return
 
 
 def create_output_dirs(out_model_file, int_output_dir):
@@ -103,10 +111,11 @@ def create_output_dirs(out_model_file, int_output_dir):
         output_dir = os.path.dirname(out_model_file)
         if (output_dir != "" and (not os.path.exists(output_dir))):
             os.makedirs(output_dir, exist_ok=True)
-        
+
         if (int_output_dir != "" and (not os.path.exists(int_output_dir))):
             os.makedirs(int_output_dir, exist_ok=True)
     return
+
 
 def copy_config_file(config_file, output_dir):
     out_file = os.path.join(output_dir, os.path.basename(config_file))
@@ -114,11 +123,10 @@ def copy_config_file(config_file, output_dir):
     return
 
 
-            
 def run(rank, num_procs, args):
     mode = args.parse_string("mode", "train")
     device = args.parse_string("device", 'cuda:0')
-    
+
     test_motion_file = args.parse_string("test_motion_file", "")
     test_motion_frame = args.parse_string("test_motion_frame", "")
 
@@ -133,30 +141,32 @@ def run(rank, num_procs, args):
     mp_util.init(rank, num_procs, device, master_port)
 
     set_np_formatting()
-    #if out_model_file is not None and int_output_dir is not None:
+    # if out_model_file is not None and int_output_dir is not None:
     create_output_dirs(out_model_file, int_output_dir)
     out_model_dir = os.path.dirname(out_model_file)
-    
+
     load_full_motion = mode == 'train' or test_motion_file == ""
     dataset = build_dataset(model_config_file, load_full_motion)
     if test_motion_file != "":
         print('Loading test file:', test_motion_file)
         normed_motion = dataset.load_new_data(test_motion_file)
-        
+
         if test_motion_frame != "":
             test_motion_frame = int(test_motion_frame)
-            normed_motion = normed_motion[test_motion_frame,:].reshape(-1, normed_motion.shape[-1])
-            
+            normed_motion = normed_motion[test_motion_frame, :].reshape(-1, normed_motion.shape[-1])
+
         dataset.motion_flattened = normed_motion
-        dataset.valid_range = [0,dataset.motion_flattened.shape[0]]
-        dataset.valid_idx = np.arange(0,dataset.motion_flattened.shape[0])
-    
+        dataset.valid_range = [0, dataset.motion_flattened.shape[0]]
+        dataset.valid_idx = np.arange(0, dataset.motion_flattened.shape[0])
+
     else:
         if test_motion_frame != "":
             test_motion_frame = int(test_motion_frame)
-            dataset.motion_flattened = dataset.motion_flattened[test_motion_frame].reshape(-1, dataset.motion_flattened.shape[-1])
-            dataset.valid_range = [0,dataset.motion_flattened.shape[0]]
-            dataset.valid_idx = np.arange(0,dataset.motion_flattened.shape[0])
+            dataset.motion_flattened = dataset.motion_flattened[test_motion_frame].reshape(-1,
+                                                                                           dataset.motion_flattened.shape[
+                                                                                               -1])
+            dataset.valid_range = [0, dataset.motion_flattened.shape[0]]
+            dataset.valid_idx = np.arange(0, dataset.motion_flattened.shape[0])
 
     if trained_model_path:
         try:
@@ -167,7 +177,7 @@ def run(rank, num_procs, args):
         except:
             print('Loading model: {}'.format(trained_model_path))
             model = torch.load(trained_model_path)
-        
+
         model.to(device)
         model.eval()
     else:
@@ -177,29 +187,29 @@ def run(rank, num_procs, args):
         env = build_env(env_config_file, int_output_dir, model, dataset, mode, device)
         agent = build_agent(agent_config_file, model, env, device)
         if trained_controller_path:
-            print("Loading controller:",trained_controller_path)
-            
+            print("Loading controller:", trained_controller_path)
+
             try:
                 actor_critic = agent.actor_critic
                 state_dict = torch.load(trained_controller_path)
                 actor_critic.load_state_dict(state_dict)
             except:
                 actor_critic = torch.load(trained_controller_path)
-        
+
             actor_critic.to(device)
             actor_critic.eval()
             agent.actor_critic = actor_critic
-    else:   
+    else:
         env = build_env(env_config_file, int_output_dir, model, dataset, 'test', device)
         agent = None
-    
+
     if (mode == "train"):
         assert agent is not None, "require a controller & a agent"
         copy_config_file(agent_config_file, out_model_dir)
         copy_config_file(env_config_file, out_model_dir)
         copy_config_file(model_config_file, out_model_dir)
         train(agent, out_model_file=out_model_file, int_output_dir=int_output_dir)
-   
+
     elif (mode == "test"):
         if agent is None:
             print('agent is None, test no agent')
@@ -211,14 +221,15 @@ def run(rank, num_procs, args):
         evaluate(agent)
 
     else:
-        assert(False), "Unsupported mode: {}".format(mode)
+        assert (False), "Unsupported mode: {}".format(mode)
 
     return
+
 
 def main(argv):
     args = load_args(argv)
     num_workers = args.parse_int("num_workers", 1)
-    assert(num_workers > 0)
+    assert (num_workers > 0)
 
     torch.multiprocessing.set_start_method("spawn")
 
@@ -233,8 +244,9 @@ def main(argv):
 
     for proc in processes:
         proc.join()
-       
+
     return
+
 
 if __name__ == "__main__":
     main(sys.argv)

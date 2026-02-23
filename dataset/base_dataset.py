@@ -1,8 +1,12 @@
 import os.path as osp
+import glob
 import numpy as np
 import torch
 import torch.optim as optim
 import torch.utils.data as data
+import sys
+
+torch.set_printoptions(precision=8, sci_mode=False, linewidth=200)
 import tqdm
 import math
 import copy
@@ -15,7 +19,7 @@ import dataset.util.geo as geo_util
 class BaseMotionData(data.Dataset):
     # For a directory contains multiple identical file type
     def __init__(self, config):
-        
+
         self.dataset_name = config["data"]["dataset_name"]
         
         if self.dataset_name in skel_dict:
@@ -38,6 +42,7 @@ class BaseMotionData(data.Dataset):
         self.fps = config["data"]["data_fps"]
 
         self.path = config["data"]["path"]
+        #self.foot_paths = config["data"]["foot_paths"]
 
         self.min_motion_len = config["data"]["min_motion_len"]
         self.max_motion_len = config["data"]["max_motion_len"]
@@ -55,7 +60,6 @@ class BaseMotionData(data.Dataset):
         self.data_rot_rpr = config["data"].get("data_rot_rpr","6d") #6d, expmap, aa, quat
         self.data_root_rot_rpr = config["data"].get("data_root_rot_rpr","angle") # angle, rot
         self.data_root_linear_rpr = config["data"].get("data_root_linear_rpr","dxdy") #dxdy, dxdydz, aa, quat
-
         self.rollout = config["optimizer"]["rollout"]
         self.use_cond = config["model_hyperparam"]["use_cond"]
 
@@ -78,30 +82,61 @@ class BaseMotionData(data.Dataset):
         self.angle_dim_lst = [0,0]
         self.offset_dim_lst = [0,0]
         self.height_index = [0,0]
+        self.foot_cartesian = [3+12*22,3+12*22+4]
+        self.foot_target_dxz = [3+12*22+4,3+12*22+4+4]
+        self.foot_contact =[3+12*22+4+4,3+12*22+4+4+2]
+        #self.foot_next_contact = [3+12*22+4+4+2,3+12*22+4+4+2+2]
+        #self.foot_contact = [3+12*22+4+4+2,3+12*22+4+4+2+2]
 
         #self.data_format = config["data"].get("data_format",["dxdyda","position","velocity","angle"])
         self.data_component = config["data"]["data_component"] #,["position","velocity","angle"])
         
-        self.use_offset = True if "offset" in self.data_component else False 
+        self.use_offset = True if "offset" in self.data_component else False
+
         self.num_file = 0
         self.file_lst = []
         
         self.extra = dict() # for labels and other multi-modal data (text & audio & video)
-        #self.labels = list()
 
         self.motion_flattened = list()
-        self.labels = list() # for labels and other multi-modal data (text & audio & video)
+        #self.labels = list() # for labels and other multi-modal data (text & audio & video)
         
         self.valid_idx = []
         self.valid_range = list()
         self.test_valid_idx = list()    
         self.file_lst = list()
         self.joint_offset = list()
-        self.test_ref_clips = list()  
+        self.test_ref_clips = list()
 
-        if osp.exists(osp.join(self.path,'stats.npz')):
-            with np.load(osp.join(self.path,'stats.npz')) as stats:
+        self.total_motion_flattened = list()
 
+        stats_new = osp.join(self.path, '0115_stats.npz')
+        stats_legacy = osp.join(self.path, 'stats_origin.npz')
+        data_new = osp.join(self.path, '0115_data.npz')
+
+        if osp.exists(stats_new):
+            with np.load(stats_new, allow_pickle=True) as stats:
+                self.std = stats['std']
+                self.avg = stats['avg']
+                self.normalization = {'mode': 'zscore', 'std': self.std, 'avg': self.avg}
+                self.frame_dim = int(stats['frame_dim'])
+                self.data_root_dim = stats['data_root_dim']
+                self.dxdydr_dim_lst = stats['dxdydr_dim_lst']
+                self.joint_dim_lst = stats['joint_dim_lst']
+                self.vel_dim_lst = stats['vel_dim_lst']
+                self.angle_dim_lst = stats['angle_dim_lst']
+                self.offset_dim_lst = stats['offset_dim_lst']
+                self.height_index = stats['height_index']
+                self.foot_cartesian = stats['foot_cartesian']
+                self.foot_target_dxz = stats['foot_target_dxz']
+                self.foot_contact = stats['foot_contact']
+                #self.foot_next_contact = stats['foot_next_contact']
+                self.joint_names = stats['joint_names'].tolist()
+                self.num_jnt = len(self.joint_names)
+                self.joint_offset = stats['joint_offset']
+                self.links = stats['links']
+        elif osp.exists(stats_legacy):
+            with np.load(stats_legacy, allow_pickle = True) as stats:
                 self.std = stats['std']
                 self.avg = stats['avg']
 
@@ -110,10 +145,10 @@ class BaseMotionData(data.Dataset):
                     'std': self.std,
                     'avg': self.avg
                 }
-                
+
                 self.data_root_dim = stats['data_root_dim']
-                self.dxdydr_dim_lst = stats['dxdydr_dim_lst'] 
-                self.joint_dim_lst = stats['joint_dim_lst']  
+                self.dxdydr_dim_lst = stats['dxdydr_dim_lst']
+                self.joint_dim_lst = stats['joint_dim_lst']
                 self.vel_dim_lst = stats['vel_dim_lst']
                 self.angle_dim_lst = stats['angle_dim_lst']
                 self.offset_dim_lst = stats['offset_dim_lst']
@@ -127,37 +162,37 @@ class BaseMotionData(data.Dataset):
                 self.frame_dim = stats['frame_dim']
 
         if self.load_full_data:
-            if osp.exists(osp.join(self.path,'data.npz')) and self.load_cache:
-                with np.load(osp.join(self.path,'data.npz')) as data:
+            if osp.exists(data_new) and self.load_cache:
+                with np.load(data_new) as data:
                     self.motion_flattened = data['motion_flattened']
                     self.valid_range = data['valid_range']
                     self.file_lst = data['file_lst']
-                
+
                 if 'labels' in data.keys():
                     self.labels= data['labels']
-                
             else:
                 file_paths = self.get_motion_fpaths()
                 
                 self.total_len = 0
                 self.motion_struct = None
-                
                 for i, fname in enumerate(tqdm.tqdm(file_paths)):
+                    print(f'fname : {fname}')
                     ret = self.process_data(fname)
                     if ret is None:
                         continue
                     elif type(ret) is not tuple:
-                        motion = ret
+                        motion, motion_struct = ret
                     else:
                         motion, motion_struct = ret
+
                         if self.motion_struct is None:
                             self.motion_struct = motion_struct
 
-                        if self.use_offset is None:
+                        '''if self.use_offset is None:
                             self.joint_offset =  motion_struct._skeleton.get_joint_offset()
                         else:
                             offset = motion_struct._skeleton.get_joint_offset()
-                            self.joint_offset.append(offset)
+                            self.joint_offset.append(offset)'''
 
                     length = len(motion)
 
@@ -170,15 +205,14 @@ class BaseMotionData(data.Dataset):
                         self.labels.extend(self.process_label(fname))
 
                     self.file_lst.append(fname)
-                    
-                    self.valid_range.append([self.total_len, self.total_len + length])
-                    
-                    self.total_len += length
+                    len_motion = len(motion)
+                    self.valid_range.append([self.total_len, self.total_len + len_motion])
+                    self.total_len += len_motion
                     self.motion_flattened.append(motion)
 
                 # Num frames x Dim feature
                 self.motion_flattened = np.concatenate(self.motion_flattened,axis=0)
-                
+
                 # skeleton joint offset
                 self.joint_offset = np.array(self.joint_offset)
 
@@ -201,25 +235,26 @@ class BaseMotionData(data.Dataset):
 
                 #reorder and create joint index limits, for retrieval specific element in the feature in the future
                 self.motion_flattened, self.std, self.avg = self.transform_data_flattened(self.motion_flattened, self.std, self.avg)
+                print(f'motion_flattened shape : {self.motion_flattened.shape}')
 
-                np.savez(osp.join(self.path,'data.npz'), 
-                        motion_flattened = self.motion_flattened, file_lst= self.file_lst, valid_range = self.valid_range, labels = self.labels)
-                np.savez(osp.join(self.path,'stats.npz'), 
-                            std = self.std, avg = self.avg, frame_dim = self.frame_dim, 
-                            joint_offset = self.joint_offset, joint_names= self.joint_names, links = self.links, 
-                            data_root_dim = self.data_root_dim,
-                            dxdydr_dim_lst = self.dxdydr_dim_lst,
-                            joint_dim_lst = self.joint_dim_lst,  
-                            vel_dim_lst = self.vel_dim_lst,
-                            angle_dim_lst = self.angle_dim_lst,
-                            offset_dim_lst = self.offset_dim_lst,
-                            height_index = self.height_index,
-                            
-                            
-                        )
-            
-    
-            
+
+                np.savez(data_new, motion_flattened=self.motion_flattened, file_lst=self.file_lst, valid_range=self.valid_range)
+                np.savez(stats_new,
+                         std=self.std, avg=self.avg, frame_dim=self.frame_dim,
+                         joint_offset=self.joint_offset, joint_names=self.joint_names, links=self.links,
+                         data_root_dim=self.data_root_dim,
+                         dxdydr_dim_lst=self.dxdydr_dim_lst,
+                         joint_dim_lst=self.joint_dim_lst,
+                         vel_dim_lst=self.vel_dim_lst,
+                         angle_dim_lst=self.angle_dim_lst,
+                         offset_dim_lst=self.offset_dim_lst,
+                         height_index=self.height_index,
+                         foot_cartesian = self.foot_cartesian,
+                         foot_target_dxz = self.foot_target_dxz,
+                         foot_contact = self.foot_contact,
+                         #foot_next_contact = self.foot_next_contact,
+                         )
+
             self.test_valid_idx_full = []
             for i_f, (idx_st, idx_ed) in enumerate(self.valid_range):
                 self.test_valid_idx_full += range(idx_st, idx_ed - self.test_num_steps)
@@ -232,9 +267,9 @@ class BaseMotionData(data.Dataset):
             self.test_valid_idx = np.array(self.test_valid_idx_full)[::skip_num]
             self.test_ref_clips = np.array([self.motion_flattened[idx:idx+self.test_num_steps] for idx in self.test_valid_idx])
 
-            print('data shape:{}'.format(self.motion_flattened.shape))
-        
-        self.joint_offset = unit_util.unit_conver_scale(self.unit) *  np.array(self.joint_offset)
+            #print('motion shape:{}'.format(self.motion.shape))
+
+        self.joint_offset = unit_util.unit_conver_scale(self.unit) * self.joint_offset
         self.joint_parent = bvh_util.get_parent_from_link(self.links)
 
     def load_new_data(self, path):
@@ -247,6 +282,7 @@ class BaseMotionData(data.Dataset):
         self.valid_idx = np.concatenate([self.valid_idx, new_idx])
         self.motion_flattened = np.asarray(self.motion_flattened).reshape(-1, self.frame_dim)
         self.motion_flattened = np.concatenate([self.motion_flattened,x_normed],axis=0)
+
         return x_normed
     
     def transform_new_data(self, data):
@@ -273,6 +309,23 @@ class BaseMotionData(data.Dataset):
                 
             if comp == 'offset':
                 data_piece.append(data[..., self.data_root_dim+self.num_jnt*(6+self.data_rot_dim):])
+
+        if hasattr(self, "foot_cartesian") and self.foot_cartesian is not None:
+            s_c, e_c = int(self.foot_cartesian[0]), int(self.foot_cartesian[1])
+            data_piece.append(data[..., s_c:e_c])
+
+        if hasattr(self, "foot_target_dxz") and self.foot_target_dxz is not None:
+            s_c, e_c = int(self.foot_target_dxz[0]), int(self.foot_target_dxz[1])
+            data_piece.append(data[..., s_c:e_c])
+
+        if hasattr(self, "foot_contact") and self.foot_contact is not None:
+            s_c, e_c = int(self.foot_contact[0]), int(self.foot_contact[1])
+            data_piece.append(data[..., s_c:e_c])
+
+        '''if hasattr(self, "foot_next_contact") and self.foot_next_contact is not None:
+            s_c, e_c = int(self.foot_next_contact[0]), int(self.foot_next_contact[1])
+            data_piece.append(data[..., s_c:e_c])'''
+
         return np.concatenate(data_piece,axis=-1)
     
     def transform_data_flattened(self, data, std, avg):
@@ -319,7 +372,7 @@ class BaseMotionData(data.Dataset):
             if comp == 'angle':
                 data_denormed = self.denorm_data(data)
                 cur_data = data_denormed[...,idx:idx+self.num_jnt*6]
-                cur_data = cur_data.reshape((num_frame, self.num_jnt, -1)).reshape(num_frame * self.num_jnt, -1) 
+                cur_data = cur_data.reshape((num_frame, self.num_jnt, -1)).reshape(num_frame * self.num_jnt, -1)
                 cur_data = torch.tensor(cur_data)
 
                 cur_data = self.from_6d_to_rpr(cur_data).numpy().reshape(num_frame, self.num_jnt,-1).reshape(num_frame, -1)
@@ -338,6 +391,53 @@ class BaseMotionData(data.Dataset):
                 std_piece.append(std[...,idx:idx+(self.num_jnt)*3])
                 avg_piece.append(avg[...,idx:idx+(self.num_jnt)*3])
                 idx += self.num_jnt*3
+
+        if hasattr(self, "foot_cartesian") and self.foot_cartesian is not None:
+            s_c, e_c = int(self.foot_cartesian[0]), int(self.foot_cartesian[1])
+            foot_dim = e_c - s_c
+
+            data_piece.append(data[..., s_c:e_c])
+            std_piece.append(std[..., s_c:e_c])
+            avg_piece.append(avg[..., s_c:e_c])
+
+            self.foot_cartesian = [idx, idx + foot_dim]
+            idx += foot_dim
+
+        if hasattr(self, "foot_target_dxz") and self.foot_target_dxz is not None:
+            s_c, e_c = int(self.foot_target_dxz[0]), int(self.foot_target_dxz[1])
+            foot_dim = e_c - s_c
+
+            data_piece.append(data[..., s_c:e_c])
+            std_piece.append(std[..., s_c:e_c])
+            avg_piece.append(avg[..., s_c:e_c])
+
+            self.foot_target_dxz = [idx, idx + foot_dim]
+            idx += foot_dim
+
+        if hasattr(self, "foot_contact") and self.foot_contact is not None:
+            s_c, e_c = int(self.foot_contact[0]), int(self.foot_contact[1])
+            foot_dim = e_c - s_c
+
+            # 원래 데이터에서 foot 부분 가져와서 새 feature 뒤에 붙임
+            data_piece.append(data[..., s_c:e_c])
+            std_piece.append(std[..., s_c:e_c])
+            avg_piece.append(avg[..., s_c:e_c])
+
+            # 새 feature 공간에서의 인덱스로 foot_polar 갱신
+            self.foot_contact = [idx, idx + foot_dim]
+            idx += foot_dim
+
+        '''if hasattr(self, "foot_next_contact") and self.foot_next_contact is not None:
+            s_c, e_c = int(self.foot_next_contact[0]), int(self.foot_next_contact[1])
+            foot_dim = e_c - s_c
+
+            data_piece.append(data[..., s_c:e_c])
+            std_piece.append(std[..., s_c:e_c])
+            avg_piece.append(avg[..., s_c:e_c])
+
+            self.foot_next_contact = [idx, idx + foot_dim]
+            idx += foot_dim'''
+
         return np.concatenate(data_piece,axis=-1), np.concatenate(std_piece,axis=-1), np.concatenate(avg_piece,axis=-1)
     
     def get_heading_dr(self,data):
@@ -347,7 +447,32 @@ class BaseMotionData(data.Dataset):
             global_heading = torch.arctan2(heading_rot[:,1,0], heading_rot[:, 0,0])
         else:
             global_heading = data[:, self.data_root_linear_dim]
+            #global_heading = data[self.data_root_linear_dim]
         return global_heading
+
+    def get_foot_xz(self, data):
+        s, e = self.foot_cartesian  # [start, end]
+        lfoot_xz = data[:, s:s + 2]
+        rfoot_xz = data[:, s + 2:e]
+        return lfoot_xz, rfoot_xz
+
+    def get_foot_contact(self, data):
+        s, e = self.foot_contact
+        lfoot_contact = data[:, s:s + 1]
+        rfoot_contact = data[:, s + 1:e]
+        return lfoot_contact, rfoot_contact
+
+    '''def get_nextfoot_contact(self, data):
+        s, e = self.foot_next_contact
+        lfoot_next_contact = data[:, s:s + 1]
+        rfoot_next_contact = data[:, s + 1:e]
+        return lfoot_next_contact, rfoot_next_contact'''
+
+    def get_foot_polar(self, data):
+        s, e = self.foot_polar
+        lfoot_polar = data[..., s: s+2]
+        rfoot_polar = data[..., s+2 : e]
+        return lfoot_polar[..., 0], lfoot_polar[..., 1], rfoot_polar[...,0], rfoot_polar[...,1]
 
     def get_heading_from_val(self, data):
         if self.data_root_rot_dim > 1:
@@ -363,6 +488,7 @@ class BaseMotionData(data.Dataset):
     
     def get_root_linear_planar_vel(self,data):
         return data[:, :self.data_root_linear_dim]
+        #return data[:self.data_root_linear_dim]
     
     def get_motion_fpaths(self, path):
         raise NotImplementedError("path_acq: not implemented!")
@@ -381,8 +507,8 @@ class BaseMotionData(data.Dataset):
     
     @staticmethod
     def create_norm(mocap_data, norm_mode):
-        max = mocap_data.max(axis=0)[0]
-        min = mocap_data.min(axis=0)[0]
+        max = mocap_data.max(axis=0)
+        min = mocap_data.min(axis=0)
         avg = mocap_data.mean(axis=0)
         std = mocap_data.std(axis=0)
         std[std == 0] = 1.0
@@ -420,6 +546,7 @@ class BaseMotionData(data.Dataset):
         elif normalization['mode'] == 'zscore':
             data_avg = normalization['avg']
             data_std = normalization['std']
+
             if device !='cpu':
                 data_avg = torch.tensor(data_avg).type(t.dtype).to(device)
                 data_std = torch.tensor(data_std).type(t.dtype).to(device)
@@ -497,6 +624,7 @@ class BaseMotionData(data.Dataset):
 
         elif category == "root_dxdy":
             rt = [0, self.data_root_linear_dim]
+            #rt = [0, 1]
         
         elif category == "position":
             index_offset = self.joint_dim_lst[0] 
@@ -516,7 +644,39 @@ class BaseMotionData(data.Dataset):
         elif category == 'offset':
             #index_offset = self.offset_dim_lst[0]
             rt = self.offset_dim_lst
+
+        elif category == 'lfoot_dxdz':
+            st = self.foot_cartesian[0]
+            ed = self.foot_cartesian[1]
+            rt = [st , ed-2]
+
+        elif category == 'rfoot_dxdz':
+            st = self.foot_cartesian[0]
+            ed = self.foot_cartesian[1]
+            rt = [st+2, ed]
+
+        elif category == 'lfoot_target_dxdz':
+            st = self.foot_target_dxz[0]
+            ed = self.foot_target_dxz[1]
+            rt = [st, ed-2]
+
+        elif category == 'rfoot_target_dxdz':
+            st = self.foot_target_dxz[0]
+            ed = self.foot_target_dxz[1]
+            rt = [st+2, ed]
+
+        elif category == 'lfoot_contact':
+            st = self.foot_contact[0]
+            ed = self.foot_contact[1]
+            rt = [st, ed-1]
+
+        elif category == 'rfoot_contact':
+            st = self.foot_contact[0]
+            ed = self.foot_contact[1]
+            rt = [st+1, ed]
+
         return rt
+
     
     def sync_rpr_within_frame(self, last_frame, frame):
         last_frame = self.denorm_data(last_frame, device=last_frame.device)
@@ -579,29 +739,24 @@ class BaseMotionData(data.Dataset):
         
         return joint_positions#.view(-1)
 
-
     def fk_local_seq(self, frames):
         dtype = frames.dtype
         num_frames = len(frames)
+
         ang_frames = frames[:,self.angle_dim_lst[0]:self.angle_dim_lst[1]]
         joint_positions = np.zeros((num_frames, self.num_jnt, 3), dtype=dtype)
         joint_orientations = np.zeros((num_frames, self.num_jnt, 3, 3), dtype=dtype)
-       
-        if self.use_offset:
-            joint_offset = frames[0,self.offset_dim_lst[0]:].reshape(-1,3)
-        else:
-            joint_offset = self.joint_offset
-        #joint_offset = joint_offset[None,...].repeat(joint_orientations.shape[0],0)
-        
+        joint_offset = self.joint_offset
+
         for i in range(self.num_jnt):
             local_rotation = ang_frames[:, self.data_rot_dim*i: self.data_rot_dim*(i+1)]
             local_rotation = self.from_rpr_to_rotmat(torch.tensor(local_rotation)).numpy()
             if self.joint_parent[i] == -1: #root
-                joint_orientations[:,i,:,:] = local_rotation 
-            else:                
+                joint_orientations[:,i,:,:] = local_rotation
+            else:
                 joint_orientations[:,i] = np.matmul(joint_orientations[:,self.joint_parent[i]], local_rotation)
                 joint_positions[:,i] = joint_positions[:,self.joint_parent[i]] + np.matmul(joint_orientations[:,self.joint_parent[i]], joint_offset[i])
-        
+
         joint_positions[..., 1] += frames[..., [self.height_index]] #height
         return  joint_positions
 
@@ -672,7 +827,7 @@ class BaseMotionData(data.Dataset):
         return dpm_lst, rotation
     
     def x_to_jnts(self, x, mode):
-        dxdy = x[...,:self.data_root_linear_dim] 
+        dxdy = x[...,:self.data_root_linear_dim]
         if self.data_root_rot_dim>1:
             m6d = self.from_rpr_to_rotmat(x[...,self.data_root_linear_dim:self.data_root_dim])
             dr, _ = geo_util.sepr_rot_heading(m6d)
@@ -680,7 +835,7 @@ class BaseMotionData(data.Dataset):
             dr = x[...,self.data_root_linear_dim]
        
         if mode == 'angle':
-            jnts = self.fk_local_seq(x) 
+            jnts = self.fk_local_seq(x)
         elif mode == 'position':
             x[..., [self.joint_dim_lst[0],self.joint_dim_lst[0]+2]] *= 0
             jnts = self.jnts_step_seq(x)
@@ -707,16 +862,16 @@ class BaseMotionData(data.Dataset):
             dpm += np.dot(cur_pos, geo_util.rot_yaw(yaws[i]))
             dpm_lst[i,:] = copy.deepcopy(dpm)
             jnts[i,:,:] = np.dot(jnts[i,:,:], geo_util.rot_yaw(yaws[i])) + copy.deepcopy(dpm)
+
         return jnts
         
     def x_to_trajs(self,x):
-        dxdy = x[...,:self.data_root_linear_dim] 
+        dxdy = x[...,:self.data_root_linear_dim]
         if self.data_root_rot_dim>1:
             m6d = self.from_rpr_to_rotmat(x[...,self.data_root_linear_dim:self.data_root_dim])
             dr, _ = geo_util.sepr_rot_heading(m6d)
         else:
             dr = x[...,self.data_root_linear_dim]
-
         #jnts = np.reshape(x[...,3:69],(-1,self.num_jnt,3))
         dpm = np.array([[0.0,0.0,0.0]])
         dpm_lst = np.zeros((dxdy.shape[0],3))
@@ -729,7 +884,6 @@ class BaseMotionData(data.Dataset):
            dpm += np.dot(cur_pos,geo_util.rot_yaw(yaws[i]))
            dpm_lst[i,:] = copy.deepcopy(dpm)
         return dpm_lst[...,[0,2]]
-    
 
     def save_bvh(self, out_path, xs):
         xyzs_seq, euler_angle = self.x_to_rotation(xs, 'angle')
@@ -745,4 +899,45 @@ class BaseMotionData(data.Dataset):
     def __getitem__(self, idx):
         idx_ = self.valid_idx[idx]
         motion = self.motion_flattened[idx_:idx_+self.rollout]
-        return  motion 
+        return  motion
+
+    def get_clip_for_inpainting(self, local_start, local_end, device='cpu'):
+        # 2) 전역 인덱스로 변환해서 motion_flattened에서 잘라오기
+        clip_st = int(local_start)
+        clip_ed = int(local_end)      # exclusive
+
+        N, D_all = self.motion_flattened.shape
+        print(f"[get_clip_for_inpainting] motion_flattened.shape = {self.motion_flattened.shape}")
+        print(f"[get_clip_for_inpainting] requested slice = [{clip_st}:{clip_ed}]")
+
+        clip_np = self.motion_flattened[clip_st:clip_ed]  # [T, D]
+        T, D = clip_np.shape
+        assert D == self.frame_dim, "frame_dim이 stats와 motion_flattened에서 불일치"
+
+        # 3) torch tensor로 변환 + batch 차원 추가
+        content = np.zeros((T, D), dtype=np.float32)  # [T, D]
+        mask = np.zeros((T, D), dtype=np.float32)  # [T, D]
+        # 4-1) root (planar vel + heading) 영역: [0 : data_root_dim]
+        '''if self.data_root_dim > 0:
+            content[:, :self.data_root_dim] = clip_np[:, :self.data_root_dim]
+            mask[:, :self.data_root_dim] = 1.0'''
+
+        # 4-2) footstep cartesian (left_dx, left_dz, right_dx, right_dz)
+        if hasattr(self, "foot_cartesian") and self.foot_cartesian is not None:
+            s_c, e_c = int(self.foot_cartesian[0]), int(self.foot_cartesian[1])
+            content[:, s_c:e_c] = clip_np[:, s_c:e_c]
+            mask[:, s_c:e_c] = 1.0
+
+        # 4-3) footstep polar (left_theta, left_d, right_theta, right_d)
+        '''if hasattr(self, "foot_polar") and self.foot_polar is not None:
+            s_p, e_p = int(self.foot_polar[0]), int(self.foot_polar[1])
+            content[:, s_p:e_p] = clip_np[:, s_p:e_p]
+            mask[:, s_p:e_p] = 1.0'''
+
+        content = torch.from_numpy(content).float().to(device)  # [T, D]
+        mask = torch.from_numpy(mask).float().to(device)  # [T, D]
+
+        content = content.unsqueeze(0)  # [1, T, D]
+        mask = mask.unsqueeze(0)  # [1, T, D]
+
+        return content, mask
