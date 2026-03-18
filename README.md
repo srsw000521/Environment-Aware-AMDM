@@ -39,7 +39,7 @@ At each timestep, the model predicts future motion segments conditioned on past 
 
 - Footstep contact constraints
 - Trajectory guidance
-- Obstacle-aware path planning
+- Obstacle-aware navigation
 
 ### RL-based Control
 
@@ -54,11 +54,11 @@ We use the following datasets:
 
 ### Preprocessing
 
+- Motion mirroring for data augmentation
 - Skeleton normalization
 - Root alignment
 - Velocity computation
 - Foot contact extraction
-- Trajectory encoding
 
 All preprocessing scripts are provided in `dataset/`.
 
